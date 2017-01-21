@@ -1,0 +1,936 @@
+# -*- Mode: Python -*-
+#
+# QAPI Schema
+
+#ifdef CONFIG_LIVE_SNAPSHOTS
+##
+# @__com.redhat_block-commit
+#
+# Live commit of data from overlay image nodes into backing nodes - i.e.,
+# writes data between 'top' and 'base' into 'base'.
+#
+# @device:  the name of the device
+#
+# @base:   #optional The file name of the backing image to write data into.
+#                    If not specified, this is the deepest backing image
+#
+# @top:              The file name of the backing image within the image chain,
+#                    which contains the topmost data to be committed down.
+#                    Note, the active layer as 'top' is currently unsupported.
+#
+#                    If top == base, that is an error.
+#
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# Returns: Nothing on success
+#          If commit or stream is already active on this device, DeviceInUse
+#          If @device does not exist, DeviceNotFound
+#          If image commit is not supported by this device, NotSupported
+#          If @base or @top is invalid, a generic error is returned
+#          If @top is the active layer, or omitted, a generic error is returned
+#          If @speed is invalid, InvalidParameter
+#
+# Since: 1.3
+#
+##
+{ 'command': '__com.redhat_block-commit',
+  'data': { 'device': 'str', '*base': 'str', 'top': 'str',
+            '*speed': 'int' } }
+
+##
+# @NewImageMode
+#
+# An enumeration that tells QEMU how to set the backing file path in
+# a new image file.
+#
+# @existing: QEMU should look for an existing image file.
+#
+# @absolute-paths: QEMU should create a new image with absolute paths
+# for the backing file.
+#
+# Since: 1.1
+##
+{ 'enum': 'NewImageMode'
+  'data': [ 'existing', 'absolute-paths' ] }
+
+##
+# @BlockdevSnapshot
+#
+# @device:  the name of the device to generate the snapshot from.
+#
+# @snapshot-file: the target of the new image. A new file will be created.
+#
+# @format: #optional the format of the snapshot image, default is 'qcow2'.
+#
+# @mode: #optional whether and how QEMU should create a new image, default is
+# 'absolute-paths'.
+##
+{ 'type': 'BlockdevSnapshot',
+  'data': { 'device': 'str', 'snapshot-file': 'str', '*format': 'str',
+            '*mode': 'NewImageMode' } }
+
+##
+# @BlockdevMirror
+#
+# @device:  the name of the device to start mirroring.
+#
+# @target: the image that will start receiving writes for @device. A new
+#          file will be created unless @mode is "existing".
+#
+# @format: #optional the format of the target image, default is 'qcow2'.
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# @mode: #optional whether and how QEMU should create a new image, default is
+# 'absolute-paths'.
+#
+# @full: whether the whole disk should be copied to the destination, or
+#        only the topmost image.
+##
+{ 'type': 'BlockdevMirror',
+  'data': { 'device': 'str', 'target': 'str', '*format': 'str',
+            '*speed': 'int', '*full': 'bool', '*mode': 'NewImageMode' } }
+
+##
+# @BlockdevAction
+#
+# A discriminated record of operations that can be performed with
+# @transaction.
+##
+{ 'union': 'BlockdevAction',
+  'data': {
+       'blockdev-snapshot-sync': 'BlockdevSnapshot',
+       '__com.redhat_drive-mirror': 'BlockdevMirror',
+   } }
+
+##
+# @transaction
+#
+# Atomically operate on a group of one or more block devices.  If
+# any operation fails, then the entire set of actions will be
+# abandoned and the appropriate error returned.  The only operation
+# supported is currently blockdev-snapshot-sync.
+#
+#  List of:
+#  @BlockdevAction: information needed for the device snapshot
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @device is busy, DeviceInUse will be returned
+#          If @snapshot-file can't be created, OpenFileFailed
+#          If @snapshot-file can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#
+# Note: The transaction aborts on the first failure.  Therefore, there will
+# be only one device or snapshot file returned in an error condition, and
+# subsequent actions will not have been attempted.
+#
+# Since 1.1
+##
+{ 'command': 'transaction',
+  'data': { 'actions': [ 'BlockdevAction' ] } }
+
+##
+# @blockdev-snapshot-sync
+#
+# Generates a synchronous snapshot of a block device.
+#
+# @device:  the name of the device to generate the snapshot from.
+#
+# @snapshot-file: the target of the new image. If the file exists, or if it
+#                 is a device, the snapshot will be created in the existing
+#                 file/device. If does not exist, a new file will be created.
+#
+# @format: #optional the format of the snapshot image, default is 'qcow2'.
+#
+# @mode: #optional whether and how QEMU should create a new image, default is
+# 'absolute-paths'.
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @snapshot-file can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#
+# Since 0.14.0
+##
+{ 'command': 'blockdev-snapshot-sync',
+  'data': { 'device': 'str', 'snapshot-file': 'str', '*format': 'str',
+            '*mode': 'NewImageMode'} }
+
+##
+# @__com.redhat_drive-reopen
+#
+# Assigns a new image file to a device.
+#
+# @device: the name of the device for which we are changing the image file.
+#
+# @new-image-file: the target of the new image. If the file doesn't exists the
+#                  command will fail.
+#
+# @format: #optional the format of the new image, default is to probe the
+#          image file
+#
+# @witness: A file descriptor name that was passed via getfd.  QEMU will write
+#   a single byte to this file descriptor before completing the command
+#   successfully.  If the byte is not written to the file, it is
+#   guaranteed that the guest has not issued any I/O to the new image.
+#   Failure to write the byte is fatal just like failure to open the new
+#   image, and will cause the guest to revert to the currently open file.
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @new-image-file can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#
+# Since 1.1
+##
+{ 'command': '__com.redhat_drive-reopen',
+  'data': { 'device': 'str', 'new-image-file': 'str', '*format': 'str',
+            '*witness': 'str' } }
+
+##
+# @__com.redhat_drive-mirror
+#
+# Start mirroring a block device's writes to a new destination.
+#
+# @device:  the name of the device whose writes should be mirrored.
+#
+# @target: the target of the new image. If the file exists, or if it
+#          is a device, the existing file/device will be used as the new
+#          destination.  If it does not exist, a new file will be created.
+#
+# @format: #optional the format of the new destination, default is the
+#          format of the source
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# @mode: #optional whether and how QEMU should create a new image, default is
+# 'absolute-paths'.
+#
+# @full: whether the whole disk should be copied to the destination, or
+#        only the topmost image.
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @target can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#
+# Since 1.1
+##
+{ 'command': '__com.redhat_drive-mirror',
+  'data': { 'device': 'str', 'target': 'str', '*format': 'str',
+            '*speed': 'int', '*full': 'bool', '*mode': 'NewImageMode'} }
+#endif
+
+##
+# @ImageCheck:
+#
+# Information about a QEMU image file check
+#
+# @filename: name of the image file checked
+#
+# @format: format of the image file checked
+#
+# @check-errors: number of unexpected errors occurred during check
+#
+# @image-end-offset: #optional offset (in bytes) where the image ends, this
+#                    field is present if the driver for the image format
+#                    supports it
+#
+# @corruptions: #optional number of corruptions found during the check if any
+#
+# @leaks: #optional number of leaks found during the check if any
+#
+# @corruptions-fixed: #optional number of corruptions fixed during the check
+#                     if any
+#
+# @leaks-fixed: #optional number of leaks fixed during the check if any
+#
+# @total-clusters: #optional total number of clusters, this field is present
+#                  if the driver for the image format supports it
+#
+# @allocated-clusters: #optional total number of allocated clusters, this
+#                      field is present if the driver for the image format
+#                      supports it
+#
+# @fragmented-clusters: #optional total number of fragmented clusters, this
+#                       field is present if the driver for the image format
+#                       supports it
+#
+# Since: 1.4
+#
+##
+
+{ 'type': 'ImageCheck',
+  'data': {'filename': 'str', 'format': 'str', 'check-errors': 'int',
+           '*image-end-offset': 'int', '*corruptions': 'int', '*leaks': 'int',
+           '*corruptions-fixed': 'int', '*leaks-fixed': 'int',
+           '*total-clusters': 'int', '*allocated-clusters': 'int',
+           '*fragmented-clusters': 'int' } }
+
+##
+# @BlockDeviceMapEntry:
+#
+# Entry in the metadata map of the device (returned by "qemu-img map")
+#
+# @start: Offset in the image of the first byte described by this entry
+#         (in bytes)
+#
+# @length: Length of the range described by this entry (in bytes)
+#
+# @depth: Number of layers (0 = top image, 1 = top image's backing file, etc.)
+#         before reaching one for which the range is allocated.  The value is
+#         in the range 0 to the depth of the image chain - 1.
+#
+# @zero: the sectors in this range read as zeros
+#
+# @data: reading the image will actually read data from a file (in particular,
+#        if @offset is present this means that the sectors are not simply
+#        preallocated, but contain actual data in raw format)
+#
+# @offset: if present, the image file stores the data for this range in
+#          raw format at the given offset.
+#
+# Since 1.7
+##
+{ 'type': 'BlockDeviceMapEntry',
+  'data': { 'start': 'int', 'length': 'int', 'depth': 'int', 'zero': 'bool',
+            'data': 'bool', '*offset': 'int' } }
+
+##
+# @PreallocMode
+#
+# Preallocation mode of QEMU image file
+#
+# @off: no preallocation
+# @metadata: preallocate only for metadata
+# @falloc: like @full preallocation but allocate disk space by
+#          posix_fallocate() rather than writing zeros.
+# @full: preallocate all data by writing zeros to device to ensure disk
+#        space is really available. @full preallocation also sets up
+#        metadata correctly.
+#
+# Since 2.2
+##
+{ 'enum': 'PreallocMode',
+  'data': [ 'off', 'metadata', 'falloc', 'full' ] }
+
+
+##
+# @EventInfo:
+#
+# Information about a QMP event
+#
+# @name: The event name
+#
+# Since: 1.2.0
+##
+{ 'type': 'EventInfo', 'data': {'name': 'str'} }
+
+##
+# @query-events:
+#
+# Return a list of supported QMP events by this server
+#
+# Returns: A list of @EventInfo for all supported events
+#
+# Since: 1.2.0
+##
+{ 'command': 'query-events', 'returns': ['EventInfo'] }
+
+##
+# @DumpGuestMemoryFormat:
+#
+# An enumeration of guest-memory-dump's format.
+#
+# @elf: elf format
+#
+# @kdump-zlib: kdump-compressed format with zlib-compressed
+#
+# @kdump-lzo: kdump-compressed format with lzo-compressed
+#
+# @kdump-snappy: kdump-compressed format with snappy-compressed
+#
+# Since: 2.0
+##
+{ 'enum': 'DumpGuestMemoryFormat',
+  'data': [ 'elf', 'kdump-zlib', 'kdump-lzo', 'kdump-snappy' ] }
+
+##
+# @dump-guest-memory
+#
+# Dump guest's memory to vmcore. It is a synchronous operation that can take
+# very long depending on the amount of guest memory. This command is only
+# supported on i386 and x86_64.
+#
+# @paging: if true, do paging to get guest's memory mapping. This allows
+#          using gdb to process the core file.
+#
+#          IMPORTANT: this option can make QEMU allocate several gigabytes
+#                     of RAM. This can happen for a large guest, or a
+#                     malicious guest pretending to be large.
+#
+#          Also, paging=true has the following limitations:
+#
+#             1. The guest may be in a catastrophic state or can have corrupted
+#                memory, which cannot be trusted
+#             2. The guest can be in real-mode even if paging is enabled. For
+#                example, the guest uses ACPI to sleep, and ACPI sleep state
+#                goes in real-mode
+#
+# @protocol: the filename or file descriptor of the vmcore. The supported
+#            protocols are:
+#
+#            1. file: the protocol starts with "file:", and the following
+#               string is the file's path.
+#            2. fd: the protocol starts with "fd:", and the following string
+#               is the fd's name.
+#
+# @begin: #optional if specified, the starting physical address.
+#
+# @length: #optional if specified, the memory size, in bytes. If you don't
+#          want to dump all guest's memory, please specify the start @begin
+#          and @length
+#
+# @format: #optional if specified, the format of guest memory dump. But non-elf
+#          format is conflict with paging and filter, ie. @paging, @begin and
+#          @length is not allowed to be specified with non-elf @format at the
+#          same time (since 2.0)
+#
+# Returns: nothing on success
+#          If @begin contains an invalid address, InvalidParameter
+#          If only one of @begin and @length is specified, MissingParameter
+#          If @protocol stats with "fd:", and the fd cannot be found, FdNotFound
+#          If @protocol starts with "file:", and the file cannot be
+#             opened, OpenFileFailed
+#          If @protocol does not start with "fd:" or "file:", InvalidParameter
+#          If an I/O error occurs while writing the file, IOError
+#          If the target does not support this command, Unsupported
+#
+# Since: 1.2
+##
+{ 'command': 'dump-guest-memory',
+  'data': { 'paging': 'bool', 'protocol': 'str', '*begin': 'int',
+            '*length': 'int', '*format': 'DumpGuestMemoryFormat' } }
+
+##
+# @DumpGuestMemoryCapability:
+#
+# A list of the available formats for dump-guest-memory
+#
+# Since: 2.0
+##
+{ 'type': 'DumpGuestMemoryCapability',
+  'data': {
+      'formats': ['DumpGuestMemoryFormat'] } }
+
+##
+# @query-dump-guest-memory-capability:
+#
+# Returns the available formats for dump-guest-memory
+#
+# Returns:  A @DumpGuestMemoryCapability object listing available formats for
+#           dump-guest-memory
+#
+# Since: 2.0
+##
+{ 'command': 'query-dump-guest-memory-capability',
+  'returns': 'DumpGuestMemoryCapability' }
+
+##
+# @String
+#
+# A fat type wrapping 'str', to be embedded in lists.
+#
+# Since 1.2
+##
+{ 'type': 'String',
+  'data': {
+    'str': 'str' } }
+
+##
+# @InetSocketAddress
+#
+# Captures a socket address or address range in the Internet namespace.
+#
+# @host: host part of the address
+#
+# @port: port part of the address, or lowest port if @to is present
+#
+# @to: highest port to try
+#
+# @ipv4: whether to accept IPv4 addresses, default try both IPv4 and IPv6
+#        #optional
+#
+# @ipv6: whether to accept IPv6 addresses, default try both IPv4 and IPv6
+#        #optional
+#
+# Since 1.3
+##
+{ 'type': 'InetSocketAddress',
+  'data': {
+    'host': 'str',
+    'port': 'str',
+    '*to': 'uint16',
+    '*ipv4': 'bool',
+    '*ipv6': 'bool' } }
+
+##
+# @UnixSocketAddress
+#
+# Captures a socket address in the local ("Unix socket") namespace.
+#
+# @path: filesystem path to use
+#
+# Since 1.3
+##
+{ 'type': 'UnixSocketAddress',
+  'data': {
+    'path': 'str' } }
+
+##
+# @SocketAddress
+#
+# Captures the address of a socket, which could also be a named file descriptor
+#
+# Since 1.3
+##
+{ 'union': 'SocketAddress',
+  'data': {
+    'inet': 'InetSocketAddress',
+    'unix': 'UnixSocketAddress',
+    'fd': 'String' } }
+
+##
+## @ChardevFile:
+#
+# Configuration info for file chardevs.
+#
+# @in:  #optional The name of the input file
+# @out: The name of the output file
+#
+# Since: 1.4
+##
+{ 'type': 'ChardevFile', 'data': { '*in' : 'str',
+                                   'out' : 'str' } }
+
+##
+# @ChardevHostdev:
+#
+# Configuration info for device and pipe chardevs.
+#
+# @device: The name of the special file for the device,
+#          i.e. /dev/ttyS0 on Unix or COM1: on Windows
+# @type: What kind of device this is.
+#
+# Since: 1.4
+##
+{ 'type': 'ChardevHostdev', 'data': { 'device' : 'str' } }
+
+##
+# @ChardevSocket:
+#
+# Configuration info for (stream) socket chardevs.
+#
+# @addr: socket address to listen on (server=true)
+#        or connect to (server=false)
+# @server: #optional create server socket (default: true)
+# @wait: #optional wait for incoming connection on server
+#        sockets (default: false).
+# @nodelay: #optional set TCP_NODELAY socket option (default: false)
+# @telnet: #optional enable telnet protocol on server
+#          sockets (default: false)
+#
+# Since: 1.4
+##
+{ 'type': 'ChardevSocket', 'data': { 'addr'     : 'SocketAddress',
+                                     '*server'  : 'bool',
+                                     '*wait'    : 'bool',
+                                     '*nodelay' : 'bool',
+                                     '*telnet'  : 'bool' } }
+
+##
+# @ChardevDgram:
+#
+# Configuration info for datagram socket chardevs.
+#
+# @remote: remote address
+# @local: #optional local address
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevDgram', 'data': { 'remote' : 'SocketAddress',
+                                    '*local' : 'SocketAddress' } }
+
+##
+# @ChardevMux:
+#
+# Configuration info for mux chardevs.
+#
+# @chardev: name of the base chardev.
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevMux', 'data': { 'chardev' : 'str' } }
+
+##
+# @ChardevStdio:
+#
+# Configuration info for stdio chardevs.
+#
+# @signal: #optional Allow signals (such as SIGINT triggered by ^C)
+#          be delivered to qemu.  Default: true in -nographic mode,
+#          false otherwise.
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevStdio', 'data': { '*signal' : 'bool' } }
+
+##
+# @ChardevSpiceChannel:
+#
+# Configuration info for spice vm channel chardevs.
+#
+# @type: kind of channel (for example vdagent).
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevSpiceChannel', 'data': { 'type'  : 'str' } }
+
+##
+# @ChardevSpicePort:
+#
+# Configuration info for spice port chardevs.
+#
+# @fqdn: name of the channel (see docs/spice-port-fqdn.txt)
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevSpicePort', 'data': { 'fqdn'  : 'str' } }
+
+##
+# @ChardevVC:
+#
+# Configuration info for virtual console chardevs.
+#
+# @width:  console width,  in pixels
+# @height: console height, in pixels
+# @cols:   console width,  in chars
+# @rows:   console height, in chars
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevVC', 'data': { '*width'  : 'int',
+                                 '*height' : 'int',
+                                 '*cols'   : 'int',
+                                 '*rows'   : 'int' } }
+
+##
+# @ChardevRingbuf:
+#
+# Configuration info for memory chardevs
+#
+# @size: #optional Ringbuffer size, must be power of two, default is 65536
+#
+# Since: 1.5
+##
+{ 'type': 'ChardevRingbuf', 'data': { '*size'  : 'int' } }
+
+##
+# @ChardevBackend:
+#
+# Configuration info for the new chardev backend.
+#
+# Since: 1.4
+##
+{ 'type': 'ChardevDummy', 'data': { } }
+
+{ 'union': 'ChardevBackend', 'data': { 'file'   : 'ChardevFile',
+                                       'serial' : 'ChardevHostdev',
+                                       'parallel': 'ChardevHostdev',
+                                       'pipe'   : 'ChardevHostdev',
+                                       'socket' : 'ChardevSocket',
+                                       'dgram'  : 'ChardevDgram',
+                                       'pty'    : 'ChardevDummy',
+                                       'null'   : 'ChardevDummy',
+                                       'mux'    : 'ChardevMux',
+                                       'msmouse': 'ChardevDummy',
+                                       'braille': 'ChardevDummy',
+                                       'stdio'  : 'ChardevStdio',
+                                       'console': 'ChardevDummy',
+                                       'spicevmc' : 'ChardevSpiceChannel',
+                                       'spiceport' : 'ChardevSpicePort',
+                                       'vc'     : 'ChardevVC',
+                                       'memory' : 'ChardevRingbuf' } }
+
+##
+# @ChardevReturn:
+#
+# Return info about the chardev backend just created.
+#
+# Since: 1.4
+##
+{ 'type' : 'ChardevReturn', 'data': { '*pty' : 'str' } }
+
+##
+# @chardev-add:
+#
+# Add a file chardev
+#
+# @id: the chardev's ID, must be unique
+# @backend: backend type and parameters
+#
+# Returns: chardev info.
+#
+# Since: 1.4
+##
+{ 'command': 'chardev-add', 'data': {'id'      : 'str',
+                                     'backend' : 'ChardevBackend' },
+  'returns': 'ChardevReturn' }
+
+##
+# @chardev-remove:
+#
+# Remove a chardev
+#
+# @id: the chardev's ID, must exist and not be in use
+#
+# Returns: Nothing on success
+#
+# Since: 1.4
+##
+{ 'command': 'chardev-remove', 'data': {'id': 'str'} }
+
+##
+# @SnapshotInfo
+#
+# @id: unique snapshot id
+#
+# @name: user chosen name
+#
+# @vm-state-size: size of the VM state
+#
+# @date-sec: UTC date of the snapshot in seconds
+#
+# @date-nsec: fractional part in nano seconds to be used with date-sec
+#
+# @vm-clock-sec: VM clock relative to boot in seconds
+#
+# @vm-clock-nsec: fractional part in nano seconds to be used with vm-clock-sec
+#
+# Since: 1.3
+#
+##
+
+{ 'type': 'SnapshotInfo',
+  'data': { 'id': 'str', 'name': 'str', 'vm-state-size': 'int',
+            'date-sec': 'int', 'date-nsec': 'int',
+            'vm-clock-sec': 'int', 'vm-clock-nsec': 'int' } }
+
+##
+# @ImageInfo:
+#
+# Information about a QEMU image file
+#
+# @filename: name of the image file
+#
+# @format: format of the image file
+#
+# @virtual-size: maximum capacity in bytes of the image
+#
+# @actual-size: #optional actual size on disk in bytes of the image
+#
+# @dirty-flag: #optional true if image is not cleanly closed
+#
+# @cluster-size: #optional size of a cluster in bytes
+#
+# @encrypted: #optional true if the image is encrypted
+#
+# @backing-filename: #optional name of the backing file
+#
+# @full-backing-filename: #optional full path of the backing file
+#
+# @backing-filename-format: #optional the format of the backing file
+#
+# @snapshots: #optional list of VM snapshots
+#
+# Since: 1.3
+#
+##
+
+{ 'type': 'ImageInfo',
+  'data': {'filename': 'str', 'format': 'str', '*dirty-flag': 'bool',
+           '*actual-size': 'int', 'virtual-size': 'int',
+           '*cluster-size': 'int', '*encrypted': 'bool',
+           '*backing-filename': 'str', '*full-backing-filename': 'str',
+           '*backing-filename-format': 'str', '*snapshots': ['SnapshotInfo'] } }
+
+##
+# @human-monitor-command:
+#
+# Execute a command on the human monitor and return the output.
+#
+# @command-line: the command to execute in the human monitor
+#
+# @cpu-index: #optional The CPU to use for commands that require an implicit CPU
+#
+# Returns: the output of the command as a string
+#
+# Since: 0.14.0
+#
+# Notes: This command only exists as a stop-gap.  It's use is highly
+#        discouraged.  The semantics of this command are not guaranteed.
+#
+#        Known limitations:
+#
+#        o This command is stateless, this means that commands that depend
+#          on state information (such as getfd) might not work
+#
+#       o Commands that prompt the user for data (eg. 'cont' when the block
+#         device is encrypted) don't currently work
+##
+{ 'command': 'human-monitor-command',
+  'data': {'command-line': 'str', '*cpu-index': 'int'},
+  'returns': 'str' }
+
+##
+# @PciMemoryRange:
+#
+# A PCI device memory region
+#
+# @base: the starting address (guest physical)
+#
+# @limit: the ending address (guest physical)
+#
+# Since: 0.14.0
+##
+{ 'type': 'PciMemoryRange', 'data': {'base': 'int', 'limit': 'int'} }
+
+##
+# @PciMemoryRegion
+#
+# Information about a PCI device I/O region.
+#
+# @bar: the index of the Base Address Register for this region
+#
+# @type: 'io' if the region is a PIO region
+#        'memory' if the region is a MMIO region
+#
+# @prefetch: #optional if @type is 'memory', true if the memory is prefetchable
+#
+# @mem_type_64: #optional if @type is 'memory', true if the BAR is 64-bit
+#
+# Since: 0.14.0
+##
+{ 'type': 'PciMemoryRegion',
+  'data': {'bar': 'int', 'type': 'str', 'address': 'int', 'size': 'int',
+           '*prefetch': 'bool', '*mem_type_64': 'bool' } }
+
+##
+# @PciBridgeInfo:
+#
+# Information about a PCI Bridge device
+#
+# @bus.number: primary bus interface number.  This should be the number of the
+#              bus the device resides on.
+#
+# @bus.secondary: secondary bus interface number.  This is the number of the
+#                 main bus for the bridge
+#
+# @bus.subordinate: This is the highest number bus that resides below the
+#                   bridge.
+#
+# @bus.io_range: The PIO range for all devices on this bridge
+#
+# @bus.memory_range: The MMIO range for all devices on this bridge
+#
+# @bus.prefetchable_range: The range of prefetchable MMIO for all devices on
+#                          this bridge
+#
+# @devices: a list of @PciDeviceInfo for each device on this bridge
+#
+# Since: 0.14.0
+##
+{ 'type': 'PciBridgeInfo',
+  'data': {'bus': { 'number': 'int', 'secondary': 'int', 'subordinate': 'int',
+                    'io_range': 'PciMemoryRange',
+                    'memory_range': 'PciMemoryRange',
+                    'prefetchable_range': 'PciMemoryRange' },
+           '*devices': ['PciDeviceInfo']} }
+
+##
+# @PciDeviceInfo:
+#
+# Information about a PCI device
+#
+# @bus: the bus number of the device
+#
+# @slot: the slot the device is located in
+#
+# @function: the function of the slot used by the device
+#
+# @class_info.desc: #optional a string description of the device's class
+#
+# @class_info.class: the class code of the device
+#
+# @id.device: the PCI device id
+#
+# @id.vendor: the PCI vendor id
+#
+# @irq: #optional if an IRQ is assigned to the device, the IRQ number
+#
+# @qdev_id: the device name of the PCI device
+#
+# @pci_bridge: if the device is a PCI bridge, the bridge information
+#
+# @regions: a list of the PCI I/O regions associated with the device
+#
+# Notes: the contents of @class_info.desc are not stable and should only be
+#        treated as informational.
+#
+# Since: 0.14.0
+##
+{ 'type': 'PciDeviceInfo',
+  'data': {'bus': 'int', 'slot': 'int', 'function': 'int',
+           'class_info': {'*desc': 'str', 'class': 'int'},
+           'id': {'device': 'int', 'vendor': 'int'},
+           '*irq': 'int', 'qdev_id': 'str', '*pci_bridge': 'PciBridgeInfo',
+           'regions': ['PciMemoryRegion']} }
+
+##
+# @PciInfo:
+#
+# Information about a PCI bus
+#
+# @bus: the bus index
+#
+# @devices: a list of devices on this bus
+#
+# Since: 0.14.0
+##
+{ 'type': 'PciInfo', 'data': {'bus': 'int', 'devices': ['PciDeviceInfo']} }
+
+##
+# @query-pci:
+#
+# Return information about the PCI bus topology of the guest.
+#
+# Returns: a list of @PciInfo for each PCI bus
+#
+# Since: 0.14.0
+##
+{ 'command': 'query-pci', 'returns': ['PciInfo'] }
+
+##
+# @rtc-reset-reinjection
+#
+# This command will reset the RTC interrupt reinjection backlog.
+# Can be used if another mechanism to synchronize guest time
+# is in effect, for example QEMU guest agent's guest-set-time
+# command.
+#
+# Since: 2.1
+##
+{ 'command': 'rtc-reset-reinjection' }
+
