@@ -1599,7 +1599,7 @@ struct GuestDiskStatusList *qmp_guest_get_disk_status(Error **errp)
     GuestDiskStatus *status = NULL;
     GuestDiskStatusList *entry = NULL;
 
-    fp = popen("timeout -s SIGKILL 2s df -h","r");
+    fp = popen("timeout -s SIGKILL 2s df -Ph","r");
     if((fgets(line, 200, fp) != NULL) && (fp != NULL)) {
         while (fgets(line, 200, fp) != NULL) {
             status = g_malloc0(sizeof *status);
