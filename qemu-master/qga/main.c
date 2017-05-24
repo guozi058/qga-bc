@@ -1330,6 +1330,54 @@ static void free_blacklist_entry(gpointer entry, gpointer unused)
     g_free(entry);
 }
 
+static void recur_mkdir(const char *dir) {
+    char tmp[256];
+    char *p = NULL;
+    size_t len;
+
+    snprintf(tmp, sizeof(tmp),"%s",dir);
+    len = strlen(tmp);
+    
+    if(tmp[0] == '/')
+        p = tmp + 1;
+    else
+        p = tmp;
+
+    if(tmp[len - 1] == '/')
+        tmp[len - 1] = 0;
+    
+    for(; *p; p++){
+        if(*p == '/') {
+            *p = 0;
+            mkdir(tmp, S_IRWXU);
+            *p = '/';
+        }
+    }
+    mkdir(tmp, S_IRWXU);
+}
+
+static int check_path(const char* path)
+{
+    DIR* dir = opendir(path);
+    if (dir)
+    {
+        g_critical("path:%s exists\n", path);
+        closedir(dir);
+    }
+    else if (ENOENT == errno)
+    {
+        g_critical("path:%s does not exists, going to create it recursively\n", path);
+        recur_mkdir(path);
+    }
+    else
+    {
+        g_critical("path:%s exists, but failed to open\n", path);
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int ret = EXIT_SUCCESS;
@@ -1351,7 +1399,8 @@ int main(int argc, char **argv)
     if (config->state_dir == NULL) {
         config->state_dir = g_strdup(dfl_pathnames.state_dir);
     }
-
+    check_path(dfl_pathnames.state_dir);
+ 
     if (config->method == NULL) {
         config->method = g_strdup("virtio-serial");
     }
