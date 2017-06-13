@@ -4,7 +4,7 @@
 
 1. This is qemu-guest-agent for BCLinux's images, it uesd in the openstack env, can monitor the system and do sometingelse.
 
-2. It based on the 2.6 branch of [github:qemu](https://github.com/qemu/qemu/tree/stable-2.6/qga)  project
+2. It based on the 2.5 branch of [github:qemu](https://github.com/qemu/qemu/tree/stable-2.5/qga)  project
 
 ## First to know （请先读我）
 
